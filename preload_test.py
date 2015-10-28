@@ -7,6 +7,7 @@ from urlparse import urlparse
 import unittest
 from mock import patch
 from mock import MagicMock
+from mock import mock_open
 from mock import sentinel
 import logging
 
@@ -158,6 +159,41 @@ class PreloadTest(unittest.TestCase):
         assert newlines[5] == 'remote_dir/test_4.html'
         assert newlines[6] == 'http://example.com/test_5.html'
         assert newlines[-1] == '/ offline.html'
+
+    @patch('preload.open_from_url')
+    @patch('shutil.copyfile')
+    @patch('preload.retrieve_from_url')
+    @patch('preload.ZipFile')
+    @patch('os.mkdir')
+    @patch('__builtin__.file', new_callable=mock_open())
+    @patch('codecs.open', new_callable=mock_open())
+    def test_fetch_packaged_webapp(self, codecs_open_mock, file_mock, mkdir_mock,
+                                   ZipFile_mock, mock3, mock2, open_from_url_mock):
+        update_webapp = """{
+                               "name": "helloworld",
+                               "package_path": "/helloworld.zip"
+                           }"""
+        manifest_webapp = """{
+                                 "name": "helloworld",
+                                 "type": "privileged"
+                             }"""
+
+        # Not using mock_open because we use `headers` and it's easier to use a
+        # plain MagicMock
+        open_url_return = MagicMock()
+        open_url_return.read.return_value = update_webapp
+        open_from_url_mock.return_value = open_url_return
+
+        mock_open(mock=ZipFile_mock, read_data=manifest_webapp)
+
+        preload.fetch_webapp('http://example.org/update.webapp')
+        mkdir_mock.assert_called_with('helloworld')
+
+        expected_metadata = '{"manifestURL": "http://example.org/update.webapp", "installOrigin": "https://marketplace.firefox.com", "type": "privileged", "external": true}'
+        file_mock().write.assert_called_with(expected_metadata)
+
+        expected_manifest = '{"type": "privileged", "name": "helloworld"}'
+        codecs_open_mock().write.assert_called_with(expected_manifest)
 
 if __name__ == "__main__":
     unittest.main()
